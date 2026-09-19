@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>本地证据保管链</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>本地证据保管链</h1>
+      <p>只读登记 · 派生追踪 · 分块封存 · 导入导出</p>
+    </div>
+    <button id="refresh">刷新状态</button>
+  </header>
+
+  <main>
+    <section class="panel status-panel">
+      <h2>状态分区</h2>
+      <div class="status-grid">
+        <div class="status pending"><strong>待确认</strong><span id="pending-count">0</span></div>
+        <div class="status accepted"><strong>已接受</strong><span id="accepted-count">0</span></div>
+        <div class="status rejected"><strong>被拒绝</strong><span id="rejected-count">0</span></div>
+        <div class="status recovering"><strong>恢复中</strong><span id="recovering-count">0</span></div>
+      </div>
+      <p id="clock-info" class="muted"></p>
+    </section>
+
+    <section class="panel">
+      <h2>保管有向图</h2>
+      <div id="graph"></div>
+      <div id="node-detail" class="detail">选择一个节点查看指纹与链验证。</div>
+    </section>
+
+    <section class="panel forms">
+      <h2>登记与操作</h2>
+      <div class="tabs">
+        <button data-tab="direct" class="active">直接登记</button>
+        <button data-tab="batch">分块封存</button>
+        <button data-tab="derive">生成派生</button>
+        <button data-tab="transfer">移交</button>
+        <button data-tab="clock">时钟校正</button>
+        <button data-tab="package">导入导出</button>
+      </div>
+
+      <form id="form-direct" class="tab-body active">
+        <label>文件名 <input name="filename" required></label>
+        <label>采集来源 <input name="source" placeholder="设备/人员/位置" required></label>
+        <label>采集说明 <textarea name="notes"></textarea></label>
+        <label>稀疏区间 JSON <input name="sparse_ranges" placeholder='[{"offset":0,"length":12}]'></label>
+        <label>原始文件 <input type="file" name="file" required></label>
+        <label>幂等键 <input name="idempotency_key" placeholder="可选，重复请求返回首次结果"></label>
+        <button>登记只读证据</button>
+      </form>
+
+      <div id="tab-batch" class="tab-body">
+        <form id="form-batch-create">
+          <label>文件名 <input name="filename" required></label>
+          <label>采集来源 <input name="source" required></label>
+          <label>采集说明 <textarea name="notes"></textarea></label>
+          <label>稀疏区间 JSON <input name="sparse_ranges"></label>
+          <label>总块数 <input type="number" name="total_blocks" min="1" required></label>
+          <label>幂等键 <input name="idempotency_key"></label>
+          <button>创建暂存批次</button>
+        </form>
+        <form id="form-block">
+          <label>批次 ID <input name="batch_id" required></label>
+          <label>块序号（从 1 开始） <input type="number" name="number" min="1" required></label>
+          <label>块文件 <input type="file" name="block" required></label>
+          <label>幂等键 <input name="idempotency_key"></label>
+          <button>写入块</button>
+        </form>
+        <form id="form-seal">
+          <label>批次 ID <input name="batch_id" required></label>
+          <label>最终 SHA-256 <input name="expected_sha256" required></label>
+          <label>幂等键 <input name="idempotency_key"></label>
+          <button>验证并封存</button>
+        </form>
+      </div>
+
+      <form id="form-derive" class="tab-body">
+        <label>父节点 ID <input name="parent_id" required></label>
+        <label>操作 <select name="operation"><option>preview</option><option>text-extract</option><option>unpack</option><option>convert</option></select></label>
+        <label>输出名称 <input name="name" required></label>
+        <label>参数 JSON <input name="parameters" placeholder='{"encoding":"utf-8"}'></label>
+        <label>输入起点 <input type="number" name="input_start"></label>
+        <label>输入长度 <input type="number" name="input_length"></label>
+        <label>派生物文件 <input type="file" name="output" required></label>
+        <label>幂等键 <input name="idempotency_key"></label>
+        <button>登记派生节点</button>
+      </form>
+
+      <form id="form-transfer" class="tab-body">
+        <label>父节点 ID <input name="parent_id" required></label>
+        <label>移交方 <input name="from_party" required></label>
+        <label>接收方 <input name="to_party" required></label>
+        <label>目的 <input name="purpose" required></label>
+        <label>幂等键 <input name="idempotency_key"></label>
+        <button>记录移交事件</button>
+      </form>
+
+      <form id="form-clock" class="tab-body">
+        <label>校正偏移（纳秒） <input type="number" name="offset_nanos" required></label>
+        <label>原因 <input name="reason" required></label>
+        <label>操作人 <input name="actor"></label>
+        <label>幂等键 <input name="idempotency_key"></label>
+        <button>保存独立时钟事实</button>
+      </form>
+
+      <div id="tab-package" class="tab-body">
+        <form id="form-export">
+          <label><input type="checkbox" name="include_derived"> 包含派生物</label>
+          <label>幂等键 <input name="idempotency_key"></label>
+          <button>创建导出包</button>
+        </form>
+        <form id="form-import">
+          <label>导入 ZIP 包 <input type="file" name="package" accept=".zip" required></label>
+          <label>幂等键 <input name="idempotency_key"></label>
+          <button>先验证再登记</button>
+        </form>
+        <div id="exports"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>批次</h2>
+      <div id="batches"></div>
+    </section>
+
+    <section class="panel">
+      <h2>事件结果</h2>
+      <pre id="result" class="result">等待操作。</pre>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
