@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForensicBox 证据保管链</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ForensicBox</h1>
+  <div class="sub">本地只读证据 · 分块封存 · 派生溯源 · 移交链验证</div>
+  <div id="clock" class="clock"></div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="dashboard" class="active">工作台</button>
+  <button data-tab="graph">有向图</button>
+  <button data-tab="packages">导出 / 导入</button>
+  <button data-tab="clocktab">时钟校正</button>
+  <button data-tab="events">事件日志</button>
+</nav>
+
+<main>
+<section id="tab-dashboard" class="tab active">
+  <div class="grid">
+    <div class="card">
+      <h2>1. 登记采集批次（分块）</h2>
+      <form id="create-form">
+        <label>文件/镜像名称 <input name="filename" required placeholder="disk001.dd"></label>
+        <div class="row">
+          <label>总字节 <input name="total" type="number" min="0" placeholder="自动计算可留 0"></label>
+          <label>块大小 <input name="blocksize" type="number" value="65536" required></label>
+        </div>
+        <label>采集来源（同内容不同来源不合并）
+          <input name="origin" placeholder="host-A / 机柜3 硬盘位2" required></label>
+        <div class="row">
+          <label>类型
+            <select name="kind"><option>file</option><option>image</option><option>stream</option></select>
+          </label>
+          <label>采集人 <input name="acquirer"></label>
+        </div>
+        <label>采集说明 <textarea name="note" rows="2" placeholder="只读写保护、设备序列号等"></textarea></label>
+        <label>证据文件 <input name="file" type="file" required></label>
+        <label class="chk"><input type="checkbox" name="verifyblocks" checked> 逐块回传哈希由服务器复核</label>
+        <button type="submit">创建并分块上传 → 封存</button>
+      </form>
+      <div id="ingest-log" class="log"></div>
+    </div>
+
+    <div class="card">
+      <h2>2. 派生物（预览 / 解包 / 提取 / 转换）</h2>
+      <form id="derive-form">
+        <label>选择证据/派生物 <select name="parent"></select></label>
+        <div class="row">
+          <label>工具
+            <select name="tool">
+              <option value="preview">preview 片段预览</option>
+              <option value="strings">strings 文本提取</option>
+              <option value="hexdump">hexdump 十六进制转储</option>
+              <option value="sha256">sha256 哈希报告</option>
+              <option value="ziplist">ziplist ZIP 条目清单</option>
+            </select>
+          </label>
+          <label>参数 <input name="args" placeholder="limit=4096 / min=6"></label>
+        </div>
+        <div class="row">
+          <label>输入片段起 <input name="start" type="number" value="0"></label>
+          <label>输入片段止（0=到末尾） <input name="end" type="number" value="0"></label>
+        </div>
+        <button type="submit">生成派生节点</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>3. 登记移交</h2>
+      <form id="transfer-form">
+        <label>证据 <select name="target"></select></label>
+        <div class="row">
+          <label>移交自 <input name="from" required placeholder="alice"></label>
+          <label>接收方 <input name="to" required placeholder="bob"></label>
+        </div>
+        <label>事由 <input name="reason" placeholder="送检 #2026-001"></label>
+        <button type="submit">追加移交事件</button>
+      </form>
+    </div>
+  </div>
+
+  <h2>采集批次（按状态分区）</h2>
+  <div class="columns">
+    <div class="col pending"><h3>待确认 pending</h3><div id="list-pending"></div></div>
+    <div class="col accepted"><h3>已接受 accepted</h3><div id="list-accepted"></div></div>
+    <div class="col rejected"><h3>被拒绝 rejected</h3><div id="list-rejected"></div></div>
+    <div class="col recovering"><h3>恢复中 recovering</h3><div id="list-recovering"></div></div>
+  </div>
+
+  <h2>证据与派生物</h2>
+  <div id="artifacts" class="artifacts"></div>
+
+  <h2>验证记录（失败保留，不覆盖最近成功）</h2>
+  <div id="checks" class="checks"></div>
+</section>
+
+<section id="tab-graph" class="tab">
+  <div class="card">
+    <div class="row">
+      <button id="verify-selected">验证从根证据到所选节点的完整链</button>
+      <span id="selected-node" class="muted">未选择节点</span>
+    </div>
+    <svg id="graph" width="100%" height="640"></svg>
+    <div id="verify-out" class="log"></div>
+  </div>
+</section>
+
+<section id="tab-packages" class="tab">
+  <div class="grid">
+    <div class="card">
+      <h2>导出包</h2>
+      <form id="export-form">
+        <label>证据（可多选；不选=全部）<select name="ids" id="export-ids" multiple size="6"></select></label>
+        <label class="chk"><input type="checkbox" name="withderived"> 包含派生物</label>
+        <button type="submit">生成导出包（清单 + 事件日志）</button>
+      </form>
+      <div id="export-log" class="log"></div>
+      <div id="package-list"></div>
+    </div>
+    <div class="card">
+      <h2>导入包（先验证后登记）</h2>
+      <form id="import-form">
+        <label>选择 .fbx.zip <input type="file" name="pkg" accept=".zip" required></label>
+        <button type="submit">上传并导入</button>
+      </form>
+      <div id="import-log" class="log"></div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-clocktab" class="tab">
+  <div class="card">
+    <h2>时钟校正（独立事实，不回写历史时间）</h2>
+    <form id="clock-form">
+      <div class="row">
+        <label>旧偏移 <input name="oldoff" placeholder="+09:00"></label>
+        <label>新偏移 <input name="newoff" placeholder="+00:00" required></label>
+      </div>
+      <label>原因 <input name="reason" placeholder="NTP 校时"></label>
+      <button type="submit">记录校正事实</button>
+    </form>
+    <div id="clock-facts"></div>
+  </div>
+</section>
+
+<section id="tab-events" class="tab">
+  <div class="card">
+    <h2>追加式事件日志</h2>
+    <pre id="event-log" class="eventlog"></pre>
+  </div>
+</section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>
